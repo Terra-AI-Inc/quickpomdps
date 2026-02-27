@@ -22,8 +22,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Set up PyCall bridge
-        env:
-          JULIA_PROJECT: "./tests"
         run: uv run python -c "import julia; julia.install()"
       - name: Run tests
         env:
