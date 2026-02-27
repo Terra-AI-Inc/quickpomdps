@@ -1,23 +1,31 @@
-[tool.poetry]
+[project]
 name = "quickpomdps"
 version = "0.1.2"
 description = "Describing and Solving POMDPs in Python"
-authors = ["rejuvyesh <mail@rejuvyesh.com>", "Zachary Sunberg <sunbergzach@gmail.com>", "Lasse Peters <lasse.peters@mailbox.org>"]
+authors = [
+    { name = "rejuvyesh", email = "mail@rejuvyesh.com" },
+    { name = "Zachary Sunberg", email = "sunbergzach@gmail.com" },
+    { name = "Lasse Peters", email = "lasse.peters@mailbox.org" },
+]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/JuliaPOMDP/quickpomdps/"
+requires-python = ">=3.7"
+dependencies = [
+    "julia>=0.5,<0.7",
+]
 
-[tool.poetry.dependencies]
-python = "^3.7"
-julia = ">=0.5,<0.7"
+[project.urls]
+Repository = "https://github.com/JuliaPOMDP/quickpomdps/"
 
-[tool.poetry.dev-dependencies]
-pytest = "^6.2.5"
-pytest-cov = "^2.12.1"
+[dependency-groups]
+dev = [
+    "pytest>=6.2.5",
+    "pytest-cov>=2.12.1",
+]
 
 [tool.pytest.ini_options]
 addopts = "--cov=quickpomdps"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

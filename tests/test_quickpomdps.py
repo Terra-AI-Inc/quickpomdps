@@ -1,14 +1,16 @@
-from quickpomdps import DiscreteExplicitPOMDP, QuickPOMDP
+from quickpomdps import DiscreteExplicitPOMDP, DiscreteExplicitMDP, QuickPOMDP, QuickMDP
 
 from julia import Pkg
-Pkg.add(["POMDPs", "POMDPSimulators", "POMDPPolicies", "POMDPModelTools", "Distributions", "QMDP"])
+Pkg.add(["POMDPs", "POMDPSimulators", "POMDPPolicies", "POMDPModelTools", "Distributions", "QMDP", "DiscreteValueIteration", "BasicPOMCP"])
 
 from julia.QuickPOMDPs import preprocess
 from julia import Main
 from julia.Main import applicable, Val, Symbol, Float64
 
-from julia.POMDPs import solve, pdf
+from julia.POMDPs import solve, pdf, value, action
 from julia.QMDP import QMDPSolver
+from julia.DiscreteValueIteration import ValueIterationSolver
+from julia.BasicPOMCP import POMCPSolver
 from julia.POMDPSimulators import stepthrough
 from julia.POMDPPolicies import alphavectors
 # for lightdark
@@ -92,6 +94,39 @@ def test_tiger():
 
     print('Undiscounted reward was', rsum)
 
+# Test using DiscreteValueIteration solver with QuickMDP to verify
+# that solvers other than QMDP work with quickpomdps
+def test_mdp_value_iteration():
+    S = ['a', 'b', 'done']
+    A = ['go', 'stay']
+
+    def T(s, a, sp):
+        if s == 'done':
+            return 1.0 if sp == 'done' else 0.0
+        if a == 'go':
+            if s == 'a':
+                return 1.0 if sp == 'b' else 0.0
+            else:
+                return 1.0 if sp == 'done' else 0.0
+        else:  # stay
+            return 1.0 if sp == s else 0.0
+
+    def R(s, a):
+        if s == 'done':
+            return 0.0
+        if s == 'b' and a == 'go':
+            return 10.0
+        return -1.0
+
+    m = DiscreteExplicitMDP(S, A, T, R, 0.95)
+
+    solver = ValueIterationSolver()
+    policy = solve(solver, m)
+
+    # From state 'a', going to 'b' then 'done' collects the +10 reward,
+    # so value of 'a' should be positive
+    assert value(policy, 'a') > 0
+
 def test_lightdark():
     r = 60
     light_loc = 10
@@ -139,4 +174,44 @@ def test_lightdark():
         print('o:', step.o, '\n')
         rsum += step.r
 
+    print('Undiscounted reward was', rsum)
+
+# Test generative model interface with an online Monte Carlo solver (BasicPOMCP).
+# Uses gen(s, a, rng) instead of explicit transition/observation distributions.
+def test_generative_pomcp():
+    from julia.Main import rand
+
+    S = ['left', 'right']
+    A = ['left', 'right', 'listen']
+    O = ['left', 'right']
+
+    def gen(s, a, rng):
+        if a == 'listen':
+            sp = s
+            o = s if rand(rng) < 0.85 else ('right' if s == 'left' else 'left')
+            r = -1.0
+        else:
+            sp = 'left' if rand(rng) < 0.5 else 'right'
+            o = 'left' if rand(rng) < 0.5 else 'right'
+            r = -100.0 if s == a else 10.0
+        return {'sp': sp, 'o': o, 'r': r}
+
+    m = QuickPOMDP(
+        states=S,
+        actions=A,
+        observations=O,
+        discount=0.95,
+        isterminal=lambda s: False,
+        initialstate=Uniform(S),
+        gen=gen,
+    )
+
+    solver = POMCPSolver()
+    policy = solve(solver, m)
+
+    # Run a short simulation to verify the solver+gen interface works end-to-end
+    rsum = 0.0
+    for step in stepthrough(m, policy, max_steps=5):
+        print('s:', step.s, 'a:', step.a, 'o:', step.o)
+        rsum += step.r
     print('Undiscounted reward was', rsum)
