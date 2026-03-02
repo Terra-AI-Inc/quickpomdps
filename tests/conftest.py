@@ -1,6 +1,7 @@
-import julia
+from julia.api import Julia
 
-# Ensure PyCall is built for the current Python before pyjulia initializes Julia.
-# This runs a Julia subprocess that validates (and if necessary rebuilds) PyCall,
-# which resolves precompile-cache mismatches in embedded mode (Julia 1.12+).
-julia.install()
+# Initialize Julia before test collection with compiled_modules=False.
+# This is required because pyjulia's embedded Julia cannot load PyCall's
+# precompiled cache (built by standalone Julia in CI). Disabling compiled
+# modules forces PyCall to recompile at runtime, which works in embedded mode.
+Julia(compiled_modules=False)
