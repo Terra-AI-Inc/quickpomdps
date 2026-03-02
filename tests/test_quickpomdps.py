@@ -1,3 +1,4 @@
+import pytest
 from quickpomdps import DiscreteExplicitPOMDP, DiscreteExplicitMDP, QuickPOMDP, QuickMDP
 
 from julia import Pkg
@@ -10,7 +11,10 @@ from julia.Main import applicable, Val, Symbol, Float64
 from julia.POMDPs import solve, pdf, value, action
 from julia.QMDP import QMDPSolver
 from julia.DiscreteValueIteration import ValueIterationSolver
-from julia.BasicPOMCP import POMCPSolver
+try:
+    from julia.BasicPOMCP import POMCPSolver
+except ImportError:
+    POMCPSolver = None
 from julia.POMDPSimulators import stepthrough
 from julia.POMDPPolicies import alphavectors
 # for lightdark
@@ -178,6 +182,7 @@ def test_lightdark():
 
 # Test generative model interface with an online Monte Carlo solver (BasicPOMCP).
 # Uses gen(s, a, rng) instead of explicit transition/observation distributions.
+@pytest.mark.skipif(POMCPSolver is None, reason="BasicPOMCP unavailable (OpenSSL dep)")
 def test_generative_pomcp():
     from julia.Main import rand
 
