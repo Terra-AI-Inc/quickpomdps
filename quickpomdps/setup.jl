@@ -13,6 +13,17 @@ function QuickPOMDPs.preprocess(v::PyObject)
     return v
 end
 
+function QuickPOMDPs.preprocess(::Val{:gen}, v::PyObject)
+    if pybuiltin("callable")(v)
+        return function(args...)
+            py_d = pycall(v, PyObject, args...)
+            jl_d = Dict{Symbol,Any}(Symbol(k) => val for (k, val) in PyDict(py_d))
+            return (; jl_d...)
+        end
+    end
+    return v
+end
+
 function QuickPOMDPs.preprocess(name::Union{Val{:reward},Val{:observation}}, v::PyObject)
     if pybuiltin("callable")(v)
         n_required, n_optional = argcounts(v)
