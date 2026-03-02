@@ -1,222 +1,238 @@
 import pytest
-from quickpomdps import DiscreteExplicitPOMDP, DiscreteExplicitMDP, QuickPOMDP, QuickMDP
+from quickpomdps import POMDP, MDP, require_julia_package
 
-from julia import Pkg
-Pkg.add(["POMDPs", "POMDPSimulators", "POMDPPolicies", "POMDPModelTools", "Distributions", "QMDP", "DiscreteValueIteration", "BasicPOMCP"])
+require_julia_package(
+    "POMDPs", "POMDPTools", "Distributions",
+    "QMDP", "DiscreteValueIteration", "BasicPOMCP",
+)
 
-from julia.QuickPOMDPs import preprocess
-from julia import Main
-from julia.Main import applicable, Val, Symbol, Float64
-
-from julia.POMDPs import solve, pdf, value, action
+from julia.Main import Float64, rand, randn
+from julia.POMDPs import solve, value
+from julia.POMDPTools import stepthrough, alphavectors, Uniform, Deterministic
+from julia.Distributions import Normal
 from julia.QMDP import QMDPSolver
 from julia.DiscreteValueIteration import ValueIterationSolver
+
 try:
     from julia.BasicPOMCP import POMCPSolver
 except ImportError:
     POMCPSolver = None
-from julia.POMDPSimulators import stepthrough
-from julia.POMDPPolicies import alphavectors
-# for lightdark
-from julia.POMDPModelTools import Uniform, Deterministic
-from julia.Distributions import Normal
 
-def test_basics():
-    def T(s, a, sp):
-        return s == sp
 
-    def Z(a, sp, o):
-        return 0.5
+# -- Tiger POMDP with gen + POMCP (discrete) ---------------------------------
 
-    def R(s, a):
-        return -1.0
+@pytest.mark.skipif(POMCPSolver is None, reason="BasicPOMCP unavailable")
+def test_tiger_gen_pomcp():
+    """Static hidden state + gen + online solver."""
 
-    S = ['l', 'r']
-    A = ['l', 'r']
-    O = ['l', 'r']
-    discount = 0.95
-    prob = DiscreteExplicitPOMDP(S, A, O, T, Z, R, discount)
-
-def test_reward():
-    r = True
-    def reward(s, a, sp=1, *args): s**2
-    jlrew = preprocess(Main.eval('Val(:reward)'), reward)
-    assert applicable(jlrew, 1, 2)
-    assert applicable(jlrew, 1, 2, 3)
-    assert applicable(jlrew, 1, 2, 3, 4)
-    assert not applicable(jlrew, 1)
-
-# Tiger POMDP from Kaelbling et al. 98 (http://www.sciencedirect.com/science/article/pii/S000437029800023X)
-def test_tiger():
-
-    S = ['left', 'right']
-    A = ['left', 'right', 'listen']
-    O = ['left', 'right']
-    discount = 0.95
-
-    def T(s, a, sp):
-        if a == 'listen':
-            return s == sp
-        else: # a door is opened
-            return 0.5 #reset
-
-    def Z(a, sp, o):
-        if a == 'listen':
-            if o == sp:
-                return 0.85
-            else:
-                return 0.15
+    def gen(s, a, rng):
+        if a == "listen":
+            sp = s
+            o = s if rand(rng) < 0.85 else ("right" if s == "left" else "left")
+            r = -1.0
         else:
-            return 0.5
+            sp = "left" if rand(rng) < 0.5 else "right"
+            o = "left" if rand(rng) < 0.5 else "right"
+            r = -100.0 if s == a else 10.0
+        return {"sp": sp, "o": o, "r": r}
 
-    def R(s, a):
-        if a == 'listen':
-            return -1.0
-        elif s == a: # the tiger was found
-            return -100.0
-        else: # the tiger was escaped
-            return 10.0
+    m = POMDP(
+        gen=gen,
+        states=["left", "right"],
+        actions=["left", "right", "listen"],
+        observations=["left", "right"],
+        initialstate=Uniform(["left", "right"]),
+        discount=0.95,
+    )
 
-    m = DiscreteExplicitPOMDP(S,A,O,T,Z,R,discount)
-
-    solver = QMDPSolver()
-    policy = solve(solver, m)
-
-    print('alpha vectors:')
-    for v in alphavectors(policy):
-        print(v)
-
-    print()
+    solver = POMCPSolver(tree_queries=1000)
+    policy = solve(solver, m.jl)
 
     rsum = 0.0
-    for step in stepthrough(m, policy, max_steps=10):
-        print('s:', step.s)
-        print('b:', [pdf(step.b, x) for x in S])
-        print('a:', step.a)
-        print('o:', step.o, '\n')
+    for step in stepthrough(m.jl, policy, max_steps=10):
+        print(f"s={step.s}, a={step.a}, o={step.o}, r={step.r}")
         rsum += step.r
+    print(f"Undiscounted reward: {rsum}")
 
-    print('Undiscounted reward was', rsum)
 
-# Test using DiscreteValueIteration solver with QuickMDP to verify
-# that solvers other than QMDP work with quickpomdps
-def test_mdp_value_iteration():
-    S = ['a', 'b', 'done']
-    A = ['go', 'stay']
+# -- Light-Dark with explicit distributions + QMDP ---------------------------
 
-    def T(s, a, sp):
-        if s == 'done':
-            return 1.0 if sp == 'done' else 0.0
-        if a == 'go':
-            if s == 'a':
-                return 1.0 if sp == 'b' else 0.0
-            else:
-                return 1.0 if sp == 'done' else 0.0
-        else:  # stay
-            return 1.0 if sp == s else 0.0
-
-    def R(s, a):
-        if s == 'done':
-            return 0.0
-        if s == 'b' and a == 'go':
-            return 10.0
-        return -1.0
-
-    m = DiscreteExplicitMDP(S, A, T, R, 0.95)
-
-    solver = ValueIterationSolver()
-    policy = solve(solver, m)
-
-    # From state 'a', going to 'b' then 'done' collects the +10 reward,
-    # so value of 'a' should be positive
-    assert value(policy, 'a') > 0
-
-def test_lightdark():
+def test_lightdark_explicit():
+    """Explicit transition/observation distributions solved with QMDP."""
     r = 60
     light_loc = 10
 
-    def transition(s, a):
-        if a == 0:
-            return Deterministic(r+1)
-        else:
-            return Deterministic(min(max(s+a, -r), r))
-
-    def observation(s, a, sp):
-        return Normal(sp, abs(sp - light_loc) + 0.0001)
-
-    def reward(s, a, sp):
-        if a == 0:
-            return 100.0 if s == 0 else -100.0
-        else:
-            return -1.0
-
-    m = QuickPOMDP(
-        states = range(-r, r+2),
-        actions = [-10, -1, 0, 1, 10],
-        discount = 0.95,
-        isterminal = lambda s: s < -r or s > r,
-        obstype = Float64,
-        transition = transition,
-        observation = observation,
-        reward = reward,
-        initialstate = Uniform(range(-r//2, r//2+1))
+    m = POMDP(
+        transition=lambda s, a: Deterministic(r + 1) if a == 0 else Deterministic(min(max(s + a, -r), r)),
+        observation=lambda s, a, sp: Normal(sp, abs(sp - light_loc) + 0.0001),
+        reward=lambda s, a, sp: (100.0 if s == 0 else -100.0) if a == 0 else -1.0,
+        states=range(-r, r + 2),
+        actions=[-10, -1, 0, 1, 10],
+        obstype=Float64,
+        initialstate=Uniform(range(-r // 2, r // 2 + 1)),
+        isterminal=lambda s: s < -r or s > r,
+        discount=0.95,
     )
 
     solver = QMDPSolver()
-    policy = solve(solver, m)
+    policy = solve(solver, m.jl)
 
-    print('alpha vectors:')
+    print("alpha vectors:")
     for v in alphavectors(policy):
         print(v)
 
-    print()
-
     rsum = 0.0
-    for step in stepthrough(m, policy, max_steps=10):
-        print('s:', step.s)
-        print('a:', step.a)
-        print('o:', step.o, '\n')
+    for step in stepthrough(m.jl, policy, max_steps=10):
+        print(f"s={step.s}, a={step.a}, o={step.o:.1f}")
         rsum += step.r
+    print(f"Undiscounted reward: {rsum}")
 
-    print('Undiscounted reward was', rsum)
 
-# Test generative model interface with an online Monte Carlo solver (BasicPOMCP).
-# Uses gen(s, a, rng) instead of explicit transition/observation distributions.
-@pytest.mark.skipif(POMCPSolver is None, reason="BasicPOMCP unavailable (OpenSSL dep)")
-def test_generative_pomcp():
-    from julia.Main import rand
+# -- MDP with explicit transition + DiscreteValueIteration --------------------
 
-    S = ['left', 'right']
-    A = ['left', 'right', 'listen']
-    O = ['left', 'right']
+def test_mdp_explicit():
+    """MDP with explicit transition distributions."""
+    S = ["a", "b", "done"]
+    A = ["go", "stay"]
 
-    def gen(s, a, rng):
-        if a == 'listen':
-            sp = s
-            o = s if rand(rng) < 0.85 else ('right' if s == 'left' else 'left')
-            r = -1.0
-        else:
-            sp = 'left' if rand(rng) < 0.5 else 'right'
-            o = 'left' if rand(rng) < 0.5 else 'right'
-            r = -100.0 if s == a else 10.0
-        return {'sp': sp, 'o': o, 'r': r}
+    def transition(s, a):
+        if s == "done":
+            return Deterministic("done")
+        if a == "go":
+            return Deterministic("b" if s == "a" else "done")
+        return Deterministic(s)
 
-    m = QuickPOMDP(
+    def reward(s, a):
+        if s == "done":
+            return 0.0
+        if s == "b" and a == "go":
+            return 10.0
+        return -1.0
+
+    m = MDP(
+        transition=transition,
+        reward=reward,
         states=S,
         actions=A,
-        observations=O,
+        initialstate=Deterministic("a"),
         discount=0.95,
-        isterminal=lambda s: False,
-        initialstate=Uniform(S),
-        gen=gen,
     )
 
-    solver = POMCPSolver()
-    policy = solve(solver, m)
+    solver = ValueIterationSolver()
+    policy = solve(solver, m.jl)
+    assert value(policy, "a") > 0
 
-    # Run a short simulation to verify the solver+gen interface works end-to-end
-    rsum = 0.0
-    for step in stepthrough(m, policy, max_steps=5):
-        print('s:', step.s, 'a:', step.a, 'o:', step.o)
-        rsum += step.r
-    print('Undiscounted reward was', rsum)
+
+# -- MDP with gen interface ---------------------------------------------------
+
+def test_mdp_gen():
+    """MDP using gen(s, a, rng) -> {sp, r} with simulation."""
+    from julia.Main import eval as jl_eval
+
+    def gen(s, a, rng):
+        if s >= 10:
+            return {"sp": s, "r": 0.0}
+        if a == 1:
+            sp = s + 1
+            r = 1.0 if sp == 10 else -0.1
+        else:
+            sp = s
+            r = -0.5
+        return {"sp": sp, "r": r}
+
+    m = MDP(
+        gen=gen,
+        states=list(range(11)),
+        actions=[0, 1],
+        initialstate=Deterministic(0),
+        isterminal=lambda s: s >= 10,
+        discount=0.95,
+    )
+
+    # Verify gen works via manual stepping
+    rng = jl_eval("using Random; Random.MersenneTwister(42)")
+    from julia.POMDPs import gen as jl_gen
+    result = jl_gen(m.jl, 0, 1, rng)
+    assert result.sp == 1
+    assert result.r == -0.1
+
+
+# -- Drill targeting: gen + discrete obs + POMCP ------------------------------
+
+@pytest.mark.skipif(POMCPSolver is None, reason="BasicPOMCP unavailable")
+def test_drill_targeting_discrete():
+    """Static hidden geology, discrete observations, POMCP."""
+    WORLDS = [
+        [0.2, 0.3, 0.9, 0.8, 0.1],
+        [0.8, 0.7, 0.2, 0.1, 0.3],
+        [0.1, 0.2, 0.3, 0.7, 0.9],
+    ]
+    NOISE_STD = 0.15
+    GRADE_CUTOFF = 0.6
+
+    def grade_bin(grade):
+        if grade < 0.3:
+            return "low"
+        elif grade < 0.6:
+            return "medium"
+        else:
+            return "high"
+
+    def gen(s, a, rng):
+        sp = s
+        true_grade = WORLDS[int(s)][int(a)]
+        noisy = true_grade + randn(rng) * NOISE_STD
+        o = grade_bin(noisy)
+        r = -1.0 + (5.0 if true_grade >= GRADE_CUTOFF else 0.0)
+        return {"sp": sp, "o": o, "r": r}
+
+    m = POMDP(
+        gen=gen,
+        states=[0, 1, 2],
+        actions=[0, 1, 2, 3, 4],
+        observations=["low", "medium", "high"],
+        initialstate=Uniform([0, 1, 2]),
+        discount=0.95,
+    )
+
+    solver = POMCPSolver(tree_queries=500, max_depth=5)
+    policy = solve(solver, m.jl)
+
+    n_steps = 0
+    for step in stepthrough(m.jl, policy, max_steps=3):
+        print(f"s={step.s}, a={step.a}, o={step.o}, r={step.r}")
+        n_steps += 1
+    assert n_steps == 3
+
+
+# -- Information-gathering composite reward -----------------------------------
+
+@pytest.mark.skipif(POMCPSolver is None, reason="BasicPOMCP unavailable")
+def test_info_gathering_reward():
+    """Reward combines exploration bonus + grade value (composite reward pattern)."""
+
+    WORLDS = [[0.1, 0.9], [0.9, 0.1]]
+    EXPLORE_BONUS = 2.0
+
+    def gen(s, a, rng):
+        sp = s
+        grade = WORLDS[int(s)][int(a)]
+        o = "high" if grade + randn(rng) * 0.1 > 0.5 else "low"
+        r = EXPLORE_BONUS + grade
+        return {"sp": sp, "o": o, "r": r}
+
+    m = POMDP(
+        gen=gen,
+        states=[0, 1],
+        actions=[0, 1],
+        observations=["low", "high"],
+        initialstate=Uniform([0, 1]),
+        discount=0.95,
+    )
+
+    solver = POMCPSolver(tree_queries=200, max_depth=3)
+    policy = solve(solver, m.jl)
+
+    for step in stepthrough(m.jl, policy, max_steps=2):
+        print(f"s={step.s}, a={step.a}, o={step.o}, r={step.r}")
+        assert step.r >= EXPLORE_BONUS  # composite reward always >= bonus
