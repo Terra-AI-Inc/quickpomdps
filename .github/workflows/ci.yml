@@ -29,13 +29,6 @@ jobs:
             Pkg.build("PyCall")
             Pkg.add(["QuickPOMDPs", "POMDPs", "POMDPSimulators", "POMDPPolicies", "POMDPModelTools", "Distributions", "QMDP", "DiscreteValueIteration", "BasicPOMCP"])
           '
-      - name: Verify PyCall bridge
-        run: |
-          uv run python -c "
-          import julia; julia.install()
-          from julia import PyCall
-          print('PyCall loaded successfully')
-          "
       - name: Run tests
         run: uv run pytest --cov-report=xml
       - name: Upload coverage
