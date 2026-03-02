@@ -1,7 +1,5 @@
 # The Light-Dark problem from https://arxiv.org/pdf/1709.06196.pdf
-from quickpomdps import POMDP, require_julia_package
-
-require_julia_package("QMDP", "Distributions", "POMDPTools")
+from quickpomdps import POMDP
 
 from julia.Main import Float64
 from julia.POMDPs import solve

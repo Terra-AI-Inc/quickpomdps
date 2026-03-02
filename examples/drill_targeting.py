@@ -12,9 +12,7 @@ Maps DrillTargeting.jl concepts to Python via quickpomdps:
 
 Uses obs_weight for continuous observation reweighting (POMCPOW pattern).
 """
-from quickpomdps import POMDP, require_julia_package
-
-require_julia_package("POMCPOW", "Distributions", "POMDPTools")
+from quickpomdps import POMDP
 
 from julia.Main import Float64, rand, randn
 from julia.POMDPs import solve

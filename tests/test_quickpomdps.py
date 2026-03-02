@@ -1,10 +1,5 @@
 import pytest
-from quickpomdps import POMDP, MDP, require_julia_package
-
-require_julia_package(
-    "POMDPs", "POMDPTools", "Distributions",
-    "QMDP", "DiscreteValueIteration", "BasicPOMCP",
-)
+from quickpomdps import POMDP, MDP
 
 from julia.Main import Float64, rand, randn
 from julia.POMDPs import solve, value

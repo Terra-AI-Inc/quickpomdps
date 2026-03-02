@@ -11,9 +11,7 @@ Define and solve POMDPs and MDPs in Python using Julia's [POMDPs.jl](https://git
 Hidden state is static. `gen(s, a, rng)` samples transitions directly for online Monte Carlo tree search.
 
 ```python
-from quickpomdps import POMDP, require_julia_package
-
-require_julia_package("BasicPOMCP", "POMDPTools")
+from quickpomdps import POMDP
 
 from julia.Main import rand
 from julia.POMDPs import solve
@@ -52,9 +50,7 @@ for step in stepthrough(m.jl, policy, max_steps=10):
 Transition and observation return Julia distributions. Offline solver enumerates the state space.
 
 ```python
-from quickpomdps import POMDP, require_julia_package
-
-require_julia_package("QMDP", "Distributions", "POMDPTools")
+from quickpomdps import POMDP
 
 from julia.Main import Float64
 from julia.POMDPs import solve
@@ -89,9 +85,7 @@ for step in stepthrough(m.jl, policy, max_steps=10):
 Continuous observation space using `gen` + `obs_weight` for particle-based belief updates.
 
 ```python
-from quickpomdps import POMDP, require_julia_package
-
-require_julia_package("POMCPOW", "Distributions", "POMDPTools")
+from quickpomdps import POMDP
 
 from julia.Main import Float64, rand, randn
 from julia.POMDPs import solve
@@ -137,9 +131,7 @@ for step in stepthrough(m.jl, policy, max_steps=3):
 ### MDP with value iteration
 
 ```python
-from quickpomdps import MDP, require_julia_package
-
-require_julia_package("DiscreteValueIteration", "POMDPTools")
+from quickpomdps import MDP
 
 from julia.POMDPs import solve, value
 from julia.POMDPTools import Deterministic
@@ -182,10 +174,6 @@ Create a problem and pass `m.jl` to any Julia solver.
 
 Provide **either** `gen` (generative) **or** `transition`+`observation`+`reward` (explicit). Mixing is allowed — `gen` takes priority when present, with `observation` used as fallback for belief updates.
 
-### `require_julia_package(*names)`
-
-Install Julia packages on demand. Call before importing solver modules.
-
 ## Installation
 
 Requires Julia — install via [juliaup](https://github.com/JuliaLang/juliaup).
@@ -194,7 +182,7 @@ Requires Julia — install via [juliaup](https://github.com/JuliaLang/juliaup).
 pip install quickpomdps
 ```
 
-Julia dependencies (`POMDPs`, `POMDPTools`, `PyCall`) are installed automatically on first import. Solvers are installed on demand via `require_julia_package()`.
+All Julia dependencies are installed automatically — `POMDPs` and `POMDPTools` on first `import quickpomdps`, and solver packages (QMDP, BasicPOMCP, POMCPOW, etc.) the first time you import them via `from julia.X import ...`.
 
 By default, Julia packages are added to the global environment. Set `JULIA_PROJECT` to use a local environment instead ([docs](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_PROJECT)).
 

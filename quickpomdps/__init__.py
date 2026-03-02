@@ -1,6 +1,34 @@
+import builtins
 import os
 
 import julia
+
+_original_import = builtins.__import__
+
+
+def _auto_install_julia_import(name, *args, **kwargs):
+    """Import hook that auto-installs Julia packages on first use.
+
+    When ``from julia.POMCPOW import ...`` fails because POMCPOW isn't
+    installed, this runs ``Pkg.add("POMCPOW")`` and retries.
+    """
+    try:
+        return _original_import(name, *args, **kwargs)
+    except ImportError as original_err:
+        parts = name.split(".")
+        if len(parts) == 2 and parts[0] == "julia":
+            pkg = parts[1]
+            try:
+                from julia import Pkg
+
+                Pkg.add(pkg)
+                return _original_import(name, *args, **kwargs)
+            except Exception:
+                raise original_err
+        raise
+
+
+builtins.__import__ = _auto_install_julia_import
 
 
 def install_julia_dependencies():
@@ -11,7 +39,8 @@ def install_julia_dependencies():
 
 
 def require_julia_package(*packages):
-    """Install Julia packages on demand (e.g. solvers)."""
+    """Install Julia packages on demand. Prefer using normal imports instead —
+    ``from julia.X import ...`` auto-installs missing packages."""
     from julia import Pkg
 
     Pkg.add(list(packages))
